@@ -1,6 +1,6 @@
 {
-  "name": "@eigenpal/docx-js-editor",
-  "version": "0.1.1",
+  "name": "@bradwell-ai/docx-js-editor",
+  "version": "0.1.2",
   "description": "A browser-based DOCX template editor with variable insertion support",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -118,10 +118,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/eigenpal/docx-editor.git",
+    "url": "https://github.com/bradwell-ai/docx-editor.git",
     "directory": "packages/react"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://npm.pkg.github.com"
   }
 }
