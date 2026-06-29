@@ -23,6 +23,7 @@ import type {
   TrackedChangeInfo,
 } from '../../../types/document';
 import type { ParagraphAttrs } from '../../schema/nodes';
+import { getMarkSetKey, RUN_BOUNDARY_MARK_EXCLUSIONS } from '../markKeys';
 import { getLinkKey, getMarksKey, marksToTextFormatting } from './marks';
 import { sdtAttrsToProps } from '../sdtAttrs';
 import {
@@ -43,7 +44,8 @@ import {
  */
 export function convertPMParagraph(node: PMNode): Paragraph {
   const attrs = node.attrs as ParagraphAttrs;
-  let content = insertCommentRanges(extractParagraphContent(node), node);
+  let content = restoreOriginalRunBoundaries(extractParagraphContent(node), node);
+  content = insertCommentRanges(content, node);
 
   // Emit BookmarkStart/End from bookmarks attr (for TOC anchors, cross-references)
   const bookmarks = attrs.bookmarks as Array<{ id: number; name: string }> | undefined;
@@ -107,68 +109,353 @@ export function convertPMParagraph(node: PMNode): Paragraph {
   return paragraph;
 }
 
-/**
- * Scan paragraph PM node for comment marks and insert commentRangeStart/End
- * markers in the content array for round-trip serialization.
- */
-function insertCommentRanges(content: ParagraphContent[], paragraph: PMNode): ParagraphContent[] {
-  // Collect which comment IDs appear as marks on child nodes
-  const commentIds = new Set<number>();
+type OriginalRunBoundary = NonNullable<ParagraphAttrs['_originalRunBoundaries']>[number];
+
+function restoreOriginalRunBoundaries(
+  content: ParagraphContent[],
+  paragraph: PMNode
+): ParagraphContent[] {
+  const boundaries = (paragraph.attrs as ParagraphAttrs)._originalRunBoundaries;
+  if (!boundaries || boundaries.length === 0) return content;
+  if (!content.every((item): item is Run => item.type === 'run')) return content;
+
+  const runs = content;
+  if (!runs.every(isTextOnlyRun)) return content;
+
+  const currentText = runs.map(runText).join('');
+  const originalText = boundaries.map((boundary) => boundary.text).join('');
+  if (currentText !== originalText) return content;
+  if (!paragraphMatchesOriginalRunBoundaries(paragraph, boundaries)) return content;
+
+  return splitRunsByOriginalBoundaries(runs, boundaries) ?? content;
+}
+
+function isTextOnlyRun(run: Run): boolean {
+  return run.content.every((item) => item.type === 'text');
+}
+
+function runText(run: Run): string {
+  return run.content.map((item) => (item.type === 'text' ? item.text : '')).join('');
+}
+
+function paragraphMatchesOriginalRunBoundaries(
+  paragraph: PMNode,
+  boundaries: OriginalRunBoundary[]
+): boolean {
+  let boundaryIndex = 0;
+  let boundaryOffset = 0;
+  let matches = true;
+
   paragraph.forEach((node) => {
-    for (const mark of node.marks) {
-      if (mark.type.name === 'comment') {
-        commentIds.add(mark.attrs.commentId as number);
+    if (!matches) return;
+    if (!node.isText) {
+      matches = false;
+      return;
+    }
+
+    const marksKey = getMarkSetKey(node.marks, RUN_BOUNDARY_MARK_EXCLUSIONS);
+    const nodeText = node.text ?? '';
+    let nodeOffset = 0;
+
+    while (nodeOffset < nodeText.length) {
+      while (boundaryIndex < boundaries.length && boundaries[boundaryIndex].text.length === 0) {
+        boundaryIndex++;
+      }
+
+      const boundary = boundaries[boundaryIndex];
+      if (!boundary || marksKey !== (boundary.marksKey ?? '')) {
+        matches = false;
+        return;
+      }
+
+      const boundaryRemaining = boundary.text.length - boundaryOffset;
+      const nodeRemaining = nodeText.length - nodeOffset;
+      const count = Math.min(boundaryRemaining, nodeRemaining);
+      const nodePart = nodeText.slice(nodeOffset, nodeOffset + count);
+      const boundaryPart = boundary.text.slice(boundaryOffset, boundaryOffset + count);
+      if (nodePart !== boundaryPart) {
+        matches = false;
+        return;
+      }
+
+      nodeOffset += count;
+      boundaryOffset += count;
+      if (boundaryOffset === boundary.text.length) {
+        boundaryIndex++;
+        boundaryOffset = 0;
       }
     }
   });
 
-  if (commentIds.size === 0) return content;
+  if (!matches) return false;
 
-  // For each comment ID, find the first and last content item that belongs to it
-  // and wrap with commentRangeStart/End
+  while (boundaryIndex < boundaries.length && boundaries[boundaryIndex].text.length === 0) {
+    boundaryIndex++;
+  }
+
+  return boundaryIndex === boundaries.length && boundaryOffset === 0;
+}
+
+function splitRunsByOriginalBoundaries(
+  runs: Run[],
+  boundaries: OriginalRunBoundary[]
+): ParagraphContent[] | null {
+  const restored: Run[] = [];
+  const cursor = { runIndex: 0, runOffset: 0 };
+
+  for (const boundary of boundaries) {
+    if (boundary.text.length === 0) {
+      restored.push(createEmptyRunFromBoundary(boundary));
+      continue;
+    }
+
+    const run = takeTextRunSlice(runs, cursor, boundary.text.length);
+    if (!run) return null;
+    if (boundary.propertyChanges && boundary.propertyChanges.length > 0) {
+      run.propertyChanges = boundary.propertyChanges;
+    }
+    restored.push(run);
+  }
+
+  while (cursor.runIndex < runs.length) {
+    const remaining = runText(runs[cursor.runIndex]).length - cursor.runOffset;
+    if (remaining > 0) return null;
+    cursor.runIndex++;
+    cursor.runOffset = 0;
+  }
+
+  return restored;
+}
+
+function createEmptyRunFromBoundary(boundary: OriginalRunBoundary): Run {
+  const run: Run = { type: 'run', content: [] };
+  if (boundary.formatting && Object.keys(boundary.formatting).length > 0) {
+    run.formatting = boundary.formatting;
+  }
+  if (boundary.propertyChanges && boundary.propertyChanges.length > 0) {
+    run.propertyChanges = boundary.propertyChanges;
+  }
+  return run;
+}
+
+function takeTextRunSlice(
+  runs: Run[],
+  cursor: { runIndex: number; runOffset: number },
+  length: number
+): Run | null {
+  let remaining = length;
+  let text = '';
+  let formatting: Run['formatting'];
+  let formattingKey: string | undefined;
+
+  while (remaining > 0) {
+    const sourceRun = runs[cursor.runIndex];
+    if (!sourceRun) return null;
+
+    const sourceText = runText(sourceRun);
+    const available = sourceText.length - cursor.runOffset;
+    if (available <= 0) {
+      cursor.runIndex++;
+      cursor.runOffset = 0;
+      continue;
+    }
+
+    const sourceFormattingKey = JSON.stringify(sourceRun.formatting ?? null);
+    if (formattingKey == null) {
+      formatting = sourceRun.formatting;
+      formattingKey = sourceFormattingKey;
+    } else if (formattingKey !== sourceFormattingKey) {
+      return null;
+    }
+
+    const count = Math.min(remaining, available);
+    text += sourceText.slice(cursor.runOffset, cursor.runOffset + count);
+    cursor.runOffset += count;
+    remaining -= count;
+
+    if (cursor.runOffset === sourceText.length) {
+      cursor.runIndex++;
+      cursor.runOffset = 0;
+    }
+  }
+
+  const run: Run = {
+    type: 'run',
+    content: [{ type: 'text', text }],
+  };
+  if (formatting && Object.keys(formatting).length > 0) {
+    run.formatting = formatting;
+  }
+  return run;
+}
+
+/**
+ * Scan paragraph PM node for comment marks and insert commentRangeStart/End
+ * markers in the content array for round-trip serialization.
+ *
+ * A comment range must serialize as exactly ONE commentRangeStart/End pair per
+ * comment id, spanning from the first marked child to the last. We deliberately
+ * span any intervening child that lacks the mark (e.g. a tracked-change run
+ * inserted into the middle of a commented range) rather than closing and
+ * reopening the range, which would emit two ranges for the same id — invalid
+ * OOXML that Word reports as unreadable content (issue #914).
+ */
+function insertCommentRanges(content: ParagraphContent[], paragraph: PMNode): ParagraphContent[] {
+  // First pass: for each comment id, record the first and last child index that
+  // carries the mark. Iteration order matches the content walk below.
+  const firstIndex = new Map<number, number>();
+  const lastIndex = new Map<number, number>();
+  let scanIndex = 0;
+  paragraph.forEach((node) => {
+    for (const mark of node.marks) {
+      if (mark.type.name === 'comment') {
+        const cid = mark.attrs.commentId as number;
+        if (!firstIndex.has(cid)) firstIndex.set(cid, scanIndex);
+        lastIndex.set(cid, scanIndex);
+      }
+    }
+    scanIndex++;
+  });
+
+  if (firstIndex.size === 0) return content;
+
+  // Invert into per-child-index start/end lists. When several ranges share a
+  // boundary we order them so that nested ranges stay well-formed: at a shared
+  // start, the longer-spanning range opens first (outermost); at a shared end,
+  // the later-starting range closes first (innermost). Ties break by id so the
+  // output is deterministic. Overlapping (non-nested) ranges are still valid
+  // OOXML; this just keeps the common nested case balanced.
+  const ids = [...firstIndex.keys()];
+  const byStart = [...ids].sort((a, b) => {
+    const fa = firstIndex.get(a)!;
+    const fb = firstIndex.get(b)!;
+    if (fa !== fb) return fa - fb;
+    const la = lastIndex.get(a)!;
+    const lb = lastIndex.get(b)!;
+    if (la !== lb) return lb - la;
+    return a - b;
+  });
+  const byEnd = [...ids].sort((a, b) => {
+    const la = lastIndex.get(a)!;
+    const lb = lastIndex.get(b)!;
+    if (la !== lb) return la - lb;
+    const fa = firstIndex.get(a)!;
+    const fb = firstIndex.get(b)!;
+    if (fa !== fb) return fb - fa;
+    return b - a;
+  });
+
+  const startsAt = new Map<number, number[]>();
+  for (const cid of byStart) {
+    const idx = firstIndex.get(cid)!;
+    (startsAt.get(idx) ?? (startsAt.set(idx, []), startsAt.get(idx)!)).push(cid);
+  }
+  const endsAt = new Map<number, number[]>();
+  for (const cid of byEnd) {
+    const idx = lastIndex.get(cid)!;
+    (endsAt.get(idx) ?? (endsAt.set(idx, []), endsAt.get(idx)!)).push(cid);
+  }
+
   const result: ParagraphContent[] = [];
-  const openedComments = new Set<number>();
+  const cursor = { index: 0 };
   let nodeIndex = 0;
 
   paragraph.forEach((node) => {
-    const nodeCommentIds = new Set<number>();
-    for (const mark of node.marks) {
-      if (mark.type.name === 'comment') {
-        nodeCommentIds.add(mark.attrs.commentId as number);
-      }
+    for (const cid of startsAt.get(nodeIndex) ?? []) {
+      result.push({ type: 'commentRangeStart', id: cid });
     }
 
-    // Close comments that are no longer active BEFORE pushing current content,
-    // so commentRangeEnd lands after the last marked node, not after the first unmarked one
-    for (const cid of [...openedComments]) {
-      if (!nodeCommentIds.has(cid)) {
-        result.push({ type: 'commentRangeEnd', id: cid });
-        openedComments.delete(cid);
-      }
-    }
+    appendContentForNode(result, content, cursor, node);
 
-    // Open new comments
-    for (const cid of nodeCommentIds) {
-      if (!openedComments.has(cid)) {
-        result.push({ type: 'commentRangeStart', id: cid });
-        openedComments.add(cid);
-      }
-    }
-
-    // Push the actual content item
-    if (nodeIndex < content.length) {
-      result.push(content[nodeIndex]);
+    for (const cid of endsAt.get(nodeIndex) ?? []) {
+      result.push({ type: 'commentRangeEnd', id: cid });
     }
 
     nodeIndex++;
   });
 
-  // Close any remaining open comments
-  for (const cid of openedComments) {
-    result.push({ type: 'commentRangeEnd', id: cid });
+  while (cursor.index < content.length) {
+    result.push(content[cursor.index]);
+    cursor.index++;
   }
 
   return result;
+}
+
+function appendContentForNode(
+  result: ParagraphContent[],
+  content: ParagraphContent[],
+  cursor: { index: number },
+  node: PMNode
+): void {
+  if (!node.isText) {
+    appendNextContentItem(result, content, cursor);
+    return;
+  }
+
+  let remainingText = (node.text ?? '').length;
+  while (remainingText > 0 && cursor.index < content.length) {
+    const item = content[cursor.index];
+    result.push(item);
+    cursor.index++;
+    remainingText -= paragraphContentTextLength(item);
+  }
+}
+
+function appendNextContentItem(
+  result: ParagraphContent[],
+  content: ParagraphContent[],
+  cursor: { index: number }
+): void {
+  if (cursor.index >= content.length) return;
+  result.push(content[cursor.index]);
+  cursor.index++;
+}
+
+function paragraphContentTextLength(content: ParagraphContent): number {
+  switch (content.type) {
+    case 'run':
+      return runContentTextLength(content);
+    case 'hyperlink':
+      return paragraphContentItemsTextLength(content.children);
+    case 'simpleField':
+      return paragraphContentItemsTextLength(content.content);
+    case 'complexField':
+      return paragraphContentItemsTextLength(content.fieldResult);
+    case 'inlineSdt':
+      return paragraphContentItemsTextLength(content.content);
+    case 'insertion':
+    case 'deletion':
+    case 'moveFrom':
+    case 'moveTo':
+      return paragraphContentItemsTextLength(content.content);
+    case 'mathEquation':
+      return content.plainText?.length ?? 0;
+    default:
+      return 0;
+  }
+}
+
+function paragraphContentItemsTextLength(content: readonly ParagraphContent[]): number {
+  return content.reduce((sum, item) => sum + paragraphContentTextLength(item), 0);
+}
+
+function runContentTextLength(run: Run): number {
+  return run.content.reduce((sum, item) => {
+    switch (item.type) {
+      case 'text':
+      case 'instrText':
+        return sum + item.text.length;
+      case 'symbol':
+        return sum + item.char.length;
+      case 'tab':
+      case 'softHyphen':
+      case 'noBreakHyphen':
+        return sum + 1;
+      default:
+        return sum;
+    }
+  }, 0);
 }
 
 /**
@@ -246,6 +533,7 @@ function paragraphAttrsToFormatting(attrs: ParagraphAttrs): ParagraphFormatting 
     attrs.tabs ||
     attrs.outlineLevel != null ||
     attrs.contextualSpacing ||
+    attrs.pageBreakBefore ||
     attrs.bidi;
 
   if (!hasFormatting) {
@@ -269,6 +557,7 @@ function paragraphAttrsToFormatting(attrs: ParagraphAttrs): ParagraphFormatting 
     tabs: attrs.tabs || undefined,
     outlineLevel: attrs.outlineLevel ?? undefined,
     contextualSpacing: attrs.contextualSpacing || undefined,
+    pageBreakBefore: attrs.pageBreakBefore || undefined,
     bidi: attrs.bidi || undefined,
   };
 }

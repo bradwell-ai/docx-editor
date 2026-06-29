@@ -123,6 +123,7 @@ export interface ComplexField {
     fieldResult: Run[];
     fieldType: FieldType;
     fldLock?: boolean;
+    formatting?: TextFormatting;
     instruction: string;
     // (undocumented)
     type: 'complexField';
@@ -143,6 +144,9 @@ export interface ConditionalFormatStyle {
     seCell?: boolean;
     swCell?: boolean;
 }
+
+// @public
+export const DEFAULT_WATERMARK_PRESETS: readonly string[];
 
 // @public
 export interface Deletion {
@@ -177,7 +181,12 @@ export interface DocumentBody {
 
 // @public
 export interface DocumentSettings {
+    defaultTableStyle?: string;
     defaultTabStop: number;
+    themeFontLang?: {
+        eastAsia?: string;
+        bidi?: string;
+    };
 }
 
 // @public
@@ -279,16 +288,20 @@ export interface FloatingTableProperties {
 }
 
 // @public
+export interface FontEmbed {
+    fontKey?: string;
+    relId: string;
+    subsetted?: boolean;
+}
+
+// @public
 export interface FontInfo {
     altName?: string;
     charset?: string;
-    // (undocumented)
-    embedBold?: string;
-    // (undocumented)
-    embedBoldItalic?: string;
-    // (undocumented)
-    embedItalic?: string;
-    embedRegular?: string;
+    embedBold?: FontEmbed;
+    embedBoldItalic?: FontEmbed;
+    embedItalic?: FontEmbed;
+    embedRegular?: FontEmbed;
     family?: 'decorative' | 'modern' | 'roman' | 'script' | 'swiss' | 'auto';
     name: string;
     panose1?: string;
@@ -864,6 +877,7 @@ export interface SectionProperties {
     evenAndOddHeaders?: boolean;
     footerDistance?: number;
     footerReferences?: FooterReference[];
+    footnoteColumns?: number;
     footnotePr?: FootnoteProperties;
     gutter?: number;
     headerDistance?: number;

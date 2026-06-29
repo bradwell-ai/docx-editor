@@ -337,6 +337,7 @@ export type Page = {
     };
     footnoteIds?: number[];
     footnoteReservedHeight?: number;
+    footnoteColumns?: number;
     columns?: ColumnLayout;
 };
 
@@ -403,6 +404,7 @@ export type ParagraphBlock = {
     sdtGroups?: SdtGroup[];
     kind: 'paragraph';
     id: BlockId;
+    paraId?: string;
     runs: Run[];
     attrs?: ParagraphAttrs;
     pmStart?: number;
@@ -549,6 +551,7 @@ export type TableBlock = {
     width?: number;
     widthType?: string;
     justification?: 'left' | 'center' | 'right';
+    bidi?: boolean;
     indent?: number;
     floating?: FloatingTablePosition;
     pmStart?: number;

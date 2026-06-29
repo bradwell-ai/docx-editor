@@ -8,6 +8,8 @@
  * - Font availability detection
  */
 
+import { resolveFontFamily } from './fontResolver';
+
 // Track loaded fonts to avoid duplicate requests
 const loadedFonts = new Set<string>();
 
@@ -84,8 +86,12 @@ function reportFontError(error: unknown, context: string): void {
   }
 }
 
-function faceKey(family: string, weight: number | string = 'normal'): string {
-  return `${family.trim()}|${weight}`;
+function faceKey(
+  family: string,
+  weight: number | string = 'normal',
+  style: 'normal' | 'italic' = 'normal'
+): string {
+  return `${family.trim()}|${weight}|${style}`;
 }
 
 // "A genuine system font satisfies this family" — the decision behind every
@@ -537,6 +543,19 @@ export function canRenderFont(fontFamily: string, fallbackFont: string = 'sans-s
   );
 }
 
+// CSS hex escapes (with the mandatory trailing space) for characters that
+// either terminate a CSS string token (LF/CR/FF — bad-string-token per
+// css-syntax-3) or could close a serialized <style> block (< >).
+const CSS_HEX_ESCAPES: Record<string, string> = {
+  '<': '\\3c ',
+  '>': '\\3e ',
+  '\n': '\\a ',
+  '\r': '\\d ',
+  '\f': '\\c ',
+};
+const cssStringEscape = (s: string) =>
+  s.replace(/["\\]/g, '\\$&').replace(/[<>\n\r\f]/g, (c) => CSS_HEX_ESCAPES[c]);
+
 /**
  * Load a font from a raw buffer (e.g., embedded in DOCX)
  *
@@ -557,12 +576,14 @@ export async function loadFontFromBuffer(
   buffer: ArrayBuffer,
   options?: {
     weight?: number | string;
+    style?: 'normal' | 'italic';
   }
 ): Promise<boolean> {
   if (typeof document === 'undefined') return false;
 
   const normalizedFamily = fontFamily.trim();
-  const key = faceKey(normalizedFamily, options?.weight);
+  const style = options?.style ?? 'normal';
+  const key = faceKey(normalizedFamily, options?.weight, style);
 
   // Provenance: mark before the async work so an in-flight registration
   // already counts as registered (see loadFontWithMapping). Marking a family
@@ -583,16 +604,17 @@ export async function loadFontFromBuffer(
       const blob = new Blob([buffer], { type: 'font/ttf' });
       const url = URL.createObjectURL(blob);
 
-      const style = document.createElement('style');
-      style.textContent = `
+      const styleEl = document.createElement('style');
+      styleEl.textContent = `
       @font-face {
-        font-family: "${normalizedFamily}";
+        font-family: "${cssStringEscape(normalizedFamily)}";
         src: url(${url}) format('truetype');
         font-weight: ${options?.weight ?? 'normal'};
+        font-style: ${style};
         font-display: swap;
       }
     `;
-      document.head.appendChild(style);
+      document.head.appendChild(styleEl);
 
       await waitForFontAvailable(normalizedFamily, 3000);
 
@@ -675,7 +697,7 @@ export async function loadFontFromUrl(
       const style = document.createElement('style');
       style.textContent = `
       @font-face {
-        font-family: "${normalizedFamily}";
+        font-family: "${cssStringEscape(normalizedFamily)}";
         src: url(${JSON.stringify(src)}) format('${guessFontFormat(src)}');
         font-weight: ${options?.weight ?? 'normal'};
         font-display: swap;
@@ -789,7 +811,13 @@ export const FONT_MAPPING: Record<string, string> = {
  */
 export function getGoogleFontEquivalent(fontName: string): string {
   const trimmed = fontName.trim();
-  return FONT_MAPPING[trimmed] || trimmed;
+  // FONT_MAPPING is the loader's small override table for a few Latin Office
+  // fonts. For everything else — notably CJK, and any-case spellings — defer to
+  // the single source of truth in fontResolver, whose lookup is case-insensitive
+  // and carries the full font→Noto mapping (so the family the loader fetches
+  // matches the one fontResolver puts in the CSS fallback stack). Falls back to
+  // the raw name when neither maps it.
+  return FONT_MAPPING[trimmed] || resolveFontFamily(trimmed).googleFont || trimmed;
 }
 
 /**
