@@ -44,6 +44,11 @@ function paragraphAttrsToDOMStyle(attrs: ParagraphAttrs): string {
     alignment: attrs.alignment,
     spaceBefore: attrs.spaceBefore,
     spaceAfter: attrs.spaceAfter,
+    // HTML-origin auto spacing (w:beforeAutospacing/afterAutospacing) isn't a
+    // tracked PM attr; it rides along on _originalFormatting. Forward it so
+    // paragraphToStyle can render Word's ~14px auto spacing (issue #811).
+    beforeAutospacing: attrs._originalFormatting?.beforeAutospacing,
+    afterAutospacing: attrs._originalFormatting?.afterAutospacing,
     lineSpacing: attrs.lineSpacing,
     lineSpacingRule: attrs.lineSpacingRule,
     indentLeft: indentLeft,
@@ -299,6 +304,7 @@ const paragraphNodeSpec: NodeSpec = {
     outlineLevel: { default: null },
     bookmarks: { default: null },
     _originalFormatting: { default: null },
+    _originalRunBoundaries: { default: null },
     _sectionProperties: { default: null },
     // Tracked structural revisions on the paragraph mark itself.
     // See ECMA-376 §17.13.5 — w:ins / w:del inside w:pPr/w:rPr.
@@ -575,8 +581,13 @@ function makeApplyStyle(schema: Schema) {
         if (rpr.italic) {
           styleMarks.push(schema.marks.italic.create());
         }
-        if (rpr.fontSize) {
-          styleMarks.push(schema.marks.fontSize.create({ size: rpr.fontSize }));
+        if (rpr.fontSize || rpr.fontSizeCs) {
+          styleMarks.push(
+            schema.marks.fontSize.create({
+              size: rpr.fontSize ?? null,
+              sizeCs: rpr.fontSizeCs ?? rpr.fontSize ?? null,
+            })
+          );
         }
         if (rpr.fontFamily) {
           styleMarks.push(

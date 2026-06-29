@@ -176,15 +176,15 @@ export function useSelectionSync(opts: UseSelectionSyncOptions): UseSelectionSyn
     // from `getBoundingClientRect`/`getClientRects` is post-transform px.
     // Divide those by zoom so the overlay divs — children of the scaled
     // container — render at the right spot once the parent's scale is applied.
-    // (The caret *height* is the exception: it comes from `offsetHeight`, a
-    // layout-px value the transform doesn't touch, so it's used as-is and the
-    // parent's scale grows it to match the line.)
+    // The caret *height* is returned in layout px by getCaretPositionFromDom
+    // (it normalizes its one scaled measurement by `zoom`; #928), so it is
+    // used as-is and the parent's scale grows it to match the line.
     const zoom = opts.zoom.value || 1;
 
     if (empty) {
       // Draw blinking caret
       const overlayRect = container.getBoundingClientRect();
-      const caret = getCaretPositionFromDom(container, from, overlayRect);
+      const caret = getCaretPositionFromDom(container, from, overlayRect, zoom);
       if (caret) {
         const el = document.createElement('div');
         el.className = 'vue-caret';
@@ -194,7 +194,7 @@ export function useSelectionSync(opts: UseSelectionSyncOptions): UseSelectionSyn
           top: ${caret.y / zoom + scrollTop}px;
           width: 2px;
           height: ${caret.height}px;
-          background: #000;
+          background: var(--doc-caret, #000);
           pointer-events: none;
           z-index: ${Z_INDEX.selectionOverlay};
         `;

@@ -11,7 +11,7 @@
  * @public
  */
 
-import { findBodyPmSpans } from './findBodyPmSpans';
+import { findBodyEmptyRuns, findBodyPmSpans } from './findBodyPmSpans';
 
 /**
  * Find ProseMirror position from a click using DOM-based detection.
@@ -397,6 +397,36 @@ export function clipRectToTableWindow(
 
 const BLANK_LINE_SELECTION_WIDTH_PX = 4;
 
+function blankLineSliverRect(markerEl: HTMLElement, overlayRect: DOMRect): DomSelectionRect | null {
+  const lineEl = markerEl.closest('.layout-line') as HTMLElement | null;
+  const lineBox = (lineEl ?? markerEl).getBoundingClientRect();
+  const left = markerEl.getBoundingClientRect().left;
+  const clipped = clipRectToTableWindow(markerEl, {
+    left,
+    top: lineBox.top,
+    right: left + BLANK_LINE_SELECTION_WIDTH_PX,
+    bottom: lineBox.bottom,
+  });
+  if (!clipped) return null;
+  const pageEl = markerEl.closest('.layout-page') as HTMLElement | null;
+  return {
+    x: clipped.left - overlayRect.left,
+    y: clipped.top - overlayRect.top,
+    width: clipped.right - clipped.left,
+    height: clipped.bottom - clipped.top,
+    pageIndex: pageEl ? Number(pageEl.dataset.pageNumber || 1) - 1 : 0,
+  };
+}
+
+function emptyParagraphRangeFor(emptyRun: HTMLElement): { pmStart: number; pmEnd: number } | null {
+  const paragraph = emptyRun.closest('.layout-paragraph') as HTMLElement | null;
+  if (!paragraph) return null;
+  const pmStart = Number(paragraph.dataset.pmStart);
+  const pmEnd = Number(paragraph.dataset.pmEnd);
+  if (!Number.isFinite(pmStart) || !Number.isFinite(pmEnd)) return null;
+  return { pmStart, pmEnd };
+}
+
 export function getSelectionRectsFromDom(
   container: HTMLElement,
   from: number,
@@ -439,15 +469,8 @@ export function getSelectionRectsFromDom(
     };
 
     if (pmStart === pmEnd) {
-      const lineEl = spanEl.closest('.layout-line') as HTMLElement | null;
-      const lineBox = (lineEl ?? spanEl).getBoundingClientRect();
-      const markerLeft = spanEl.getBoundingClientRect().left;
-      pushClipped({
-        left: markerLeft,
-        top: lineBox.top,
-        right: markerLeft + BLANK_LINE_SELECTION_WIDTH_PX,
-        bottom: lineBox.bottom,
-      });
+      const sliver = blankLineSliverRect(spanEl, overlayRect);
+      if (sliver) rects.push(sliver);
       continue;
     }
 
@@ -487,6 +510,13 @@ export function getSelectionRectsFromDom(
     for (const clientRect of Array.from(range.getClientRects())) {
       pushClipped(clientRect);
     }
+  }
+
+  for (const emptyRun of findBodyEmptyRuns(container)) {
+    const range = emptyParagraphRangeFor(emptyRun);
+    if (!range || range.pmEnd <= from || range.pmStart >= to) continue;
+    const sliver = blankLineSliverRect(emptyRun, overlayRect);
+    if (sliver) rects.push(sliver);
   }
 
   return rects;
@@ -532,7 +562,8 @@ function caretFromSpan(
   spanEl: HTMLElement,
   pmPos: number,
   pmStart: number,
-  overlayRect: DOMRect
+  overlayRect: DOMRect,
+  zoom: number
 ): DomCaretPosition {
   const pageEl = spanEl.closest('.layout-page') as HTMLElement | null;
   const pageIndex = pageEl ? Number(pageEl.dataset.pageNumber || 1) - 1 : 0;
@@ -566,10 +597,15 @@ function caretFromSpan(
   // Word (#748). The collapsed range's rect already reports the per-run
   // font box (and its top is baseline-aligned), so use it; fall back to the
   // line height if the browser returns a zero-height rect.
+  //
+  // `rangeRect` comes from getBoundingClientRect, so its height is in screen
+  // space (scaled by `zoom`); divide it back to layout px so the returned
+  // height matches the offsetHeight-based fallbacks. Consumers paint the caret
+  // inside the zoom-scaled container and so expect layout px (#928).
   return {
     x: rangeRect.left - overlayRect.left,
     y: rangeRect.top - overlayRect.top,
-    height: rangeRect.height || lineHeight,
+    height: rangeRect.height ? rangeRect.height / zoom : lineHeight,
     pageIndex,
   };
 }
@@ -577,7 +613,8 @@ function caretFromSpan(
 export function getCaretPositionFromDom(
   container: HTMLElement,
   pmPos: number,
-  overlayRect: DOMRect
+  overlayRect: DOMRect,
+  zoom: number = 1
 ): DomCaretPosition | null {
   // Body-scoped span lookup so HF spans don't mis-resolve the caret
   // when a body PM position happens to fall within an HF range.
@@ -608,11 +645,11 @@ export function getCaretPositionFromDom(
       }
       continue;
     }
-    return caretFromSpan(spanEl, pmPos, pmStart, overlayRect);
+    return caretFromSpan(spanEl, pmPos, pmStart, overlayRect, zoom);
   }
 
   if (fallback) {
-    return caretFromSpan(fallback, pmPos, fallbackStart, overlayRect);
+    return caretFromSpan(fallback, pmPos, fallbackStart, overlayRect, zoom);
   }
 
   // Check empty paragraphs (prefer an on-window copy here too).

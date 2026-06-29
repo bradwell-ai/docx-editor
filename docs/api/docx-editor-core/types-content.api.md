@@ -82,10 +82,14 @@ export interface ComplexField {
     fieldResult: Run[];
     fieldType: FieldType;
     fldLock?: boolean;
+    formatting?: TextFormatting;
     instruction: string;
     // (undocumented)
     type: 'complexField';
 }
+
+// @public
+export const DEFAULT_WATERMARK_PRESETS: readonly string[];
 
 // @public
 export interface Deletion {
@@ -561,6 +565,7 @@ export interface SectionProperties {
     evenAndOddHeaders?: boolean;
     footerDistance?: number;
     footerReferences?: FooterReference[];
+    footnoteColumns?: number;
     footnotePr?: FootnoteProperties;
     gutter?: number;
     headerDistance?: number;
