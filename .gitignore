@@ -51,9 +51,6 @@ screenshots/
 # Built packages
 *.tgz
 
-# npm lock file (using bun.lock)
-package-lock.json
-
 # Build info
 *.tsbuildinfo
 next-env.d.ts

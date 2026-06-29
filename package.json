@@ -2,20 +2,6 @@
   "name": "docx-editor-monorepo",
   "version": "0.0.21",
   "private": true,
-  "workspaces": [
-    "packages/*",
-    "examples/agents-demo",
-    "examples/agent-chat-demo",
-    "examples/astro",
-    "examples/collaboration",
-    "examples/nextjs",
-    "examples/plugins/docxtemplater",
-    "examples/plugins/hello-world",
-    "examples/nuxt",
-    "examples/remix",
-    "examples/vite",
-    "examples/vue"
-  ],
   "type": "module",
   "scripts": {
     "dev": "bun run --filter './examples/vite' --filter './examples/vue' dev",
@@ -71,6 +57,7 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "bun run build:packages && changeset publish",
+    "pack:gist": "node scripts/pack-gist-tarballs.mjs",
     "prepare": "husky"
   },
   "devDependencies": {
@@ -78,9 +65,9 @@
     "@changesets/cli": "^2.30.0",
     "@happy-dom/global-registrator": "^20.8.3",
     "@microsoft/api-extractor": "^7.50.0",
-    "ajv": "^8.12.0",
     "@microsoft/tsdoc": "^0.16.0",
     "@playwright/test": "^1.60.0",
+    "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.0.0",
     "@types/bun": "^1.0.0",
     "@types/react": "19.2.17",
@@ -89,6 +76,7 @@
     "@typescript-eslint/parser": "^8.54.0",
     "@vitejs/plugin-react": "^6.0.2",
     "@vitejs/plugin-vue": "^6.0.4",
+    "ajv": "^8.12.0",
     "autoprefixer": "^10.4.17",
     "class-variance-authority": "^0.7.0",
     "eslint": "^10.0.3",
@@ -120,6 +108,14 @@
   ],
   "author": "EigenPal",
   "license": "Apache-2.0",
+  "dependencies": {
+    "@eigenpal/docx-editor-agents": "file:packages/agents",
+    "@eigenpal/docx-editor-core": "file:packages/core",
+    "@eigenpal/docx-editor-i18n": "file:packages/i18n",
+    "@eigenpal/docx-editor-react": "file:packages/react",
+    "@eigenpal/docx-editor-vue": "file:packages/vue",
+    "@eigenpal/nuxt-docx-editor": "file:packages/nuxt"
+  },
   "homepage": "https://docx-editor.dev/",
   "repository": {
     "type": "git",
