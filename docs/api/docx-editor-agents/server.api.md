@@ -85,12 +85,13 @@ export interface EditorBridge {
     }): PageContent[];
     getSelection(): SelectionInfo | null;
     getTotalPages(): number;
+    insertBreak(options: InsertBreakOptions): boolean;
     onContentChange(listener: (event: ContentChangeEvent) => void): () => void;
     onSelectionChange(listener: (event: SelectionChangeEvent) => void): () => void;
     proposeChange(options: ProposeChangeOptions): boolean;
     replyTo(commentId: number, options: ReplyOptions): number | null;
     resolveComment(commentId: number): void;
-    scrollTo(paraId: string): boolean;
+    scrollTo(paraId: string, options?: ScrollToParaIdOptions): boolean;
     setParagraphStyle(options: SetParagraphStyleOptions): boolean;
 }
 

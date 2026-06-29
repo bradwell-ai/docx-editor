@@ -27,6 +27,7 @@ import { mergeTextFormatting } from '../../../utils/textFormattingMerge';
 import type { StyleResolver } from '../../styles';
 import { resolveTextFormatting } from './marks';
 import { convertParagraph } from './paragraph';
+import { registerTableConverter } from '../tableConverterRegistry';
 
 /**
  * Resolve table style conditional formatting
@@ -243,6 +244,7 @@ export function convertTable(
     floating: table.formatting?.floating,
     cellMargins: cellMarginsAttr,
     look: table.formatting?.look,
+    bidi: table.formatting?.bidi || undefined,
     _originalFormatting: table.formatting || undefined,
   };
   // Table-property change history (`<w:tblPrChange>`).
@@ -765,3 +767,9 @@ function convertTableCell(
   const nodeType = isHeader ? 'tableHeader' : 'tableCell';
   return schema.node(nodeType, attrs, contentNodes);
 }
+
+// Publish the canonical converter so the table-insert command (extensions
+// layer) can reuse it without a static import that would close a module cycle.
+// This runs whenever the conversion layer loads — `toProseDoc` does so on
+// every editor mount. See ./tableConverterRegistry for the rationale.
+registerTableConverter(convertTable);
