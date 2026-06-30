@@ -166,7 +166,9 @@ export function StylePicker({
       <SelectContent className="min-w-[260px] max-h-[400px]">
         {styleOptions.map((style) => (
           <SelectItem key={style.styleId} value={style.styleId} className="py-2.5 px-3">
-            <span style={getStylePreviewProps(style) as React.CSSProperties}>{getStyleName(style)}</span>
+            <span style={getStylePreviewProps(style) as React.CSSProperties}>
+              {getStyleName(style)}
+            </span>
           </SelectItem>
         ))}
       </SelectContent>
