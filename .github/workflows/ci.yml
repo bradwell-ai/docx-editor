@@ -93,12 +93,12 @@ jobs:
 
       - name: Build packages
         run: |
-          npm run build --workspace=@eigenpal/docx-editor-i18n
-          npm run build --workspace=@eigenpal/docx-editor-core
-          npm run build --workspace=@eigenpal/docx-editor-react
-          npm run build --workspace=@eigenpal/docx-editor-agents
-          npm run build --workspace=@eigenpal/docx-editor-vue
-          npm run build --workspace=@eigenpal/nuxt-docx-editor
+          npm run build --prefix packages/i18n
+          npm run build --prefix packages/core
+          npm run build --prefix packages/react
+          npm run build --prefix packages/agents
+          npm run build --prefix packages/vue
+          npm run build --prefix packages/nuxt
         env:
           NODE_OPTIONS: --max-old-space-size=8192
 
