@@ -26,19 +26,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6.0.3
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          bun-version: latest
+          node-version-file: '.nvmrc'
+          cache: 'npm'
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: npm ci
 
       - name: Lint
-        run: bun run lint
+        run: npm run lint
 
       - name: Format check
-        run: bun run format:check
+        run: npm run format:check
 
   test:
     if: github.actor != 'dependabot[bot]'
@@ -47,19 +48,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6.0.3
 
-      - name: Setup Bun
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Setup Bun test runtime
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: npm ci
 
       - name: Type check
-        run: bun run typecheck
+        run: npm run typecheck:packages
 
       - name: i18n locale + typed-exports sync check
-        run: bun run i18n:validate
+        run: npm run i18n:validate
 
       - name: Run tests
         run: bun test
@@ -75,30 +82,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6.0.3
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          bun-version: latest
+          node-version-file: '.nvmrc'
+          cache: 'npm'
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: npm ci
 
       - name: Build packages
-        run: bun run build:packages
+        run: |
+          npm run build --prefix packages/i18n
+          npm run build --prefix packages/core
+          npm run build --prefix packages/react
+          npm run build --prefix packages/agents
+          npm run build --prefix packages/vue
+          npm run build --prefix packages/nuxt
         env:
           NODE_OPTIONS: --max-old-space-size=8192
 
       - name: API report check
-        run: bun run api:check
+        run: npm run api:check
 
       - name: Parity contract check
-        run: bun run check:parity-contract
+        run: npm run check:parity-contract
 
       - name: i18n per-locale bundle size check
-        run: bun run check:i18n-bundle-size
+        run: npm run check:i18n-bundle-size
 
       - name: Docs JSON generation (smoke test)
         # Not committed — `docs/json/` is gitignored. Run as a smoke test
         # so any breakage in the generator surfaces here instead of when
         # the docs site (`docx-editor-page`) tries to consume it.
-        run: bun run docs:json
+        run: npm run docs:json
