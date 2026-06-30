@@ -54,16 +54,12 @@ jobs:
             'packages/core/package.json',
             'packages/agents/package.json',
             'packages/react/package.json',
-            'packages/vue/package.json',
-            'packages/nuxt/package.json',
           ];
           const internal = new Set([
             '@eigenpal/docx-editor-i18n',
             '@eigenpal/docx-editor-core',
             '@eigenpal/docx-editor-agents',
             '@eigenpal/docx-editor-react',
-            '@eigenpal/docx-editor-vue',
-            '@eigenpal/nuxt-docx-editor',
           ]);
           for (const path of paths) {
             const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));

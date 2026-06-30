@@ -95,10 +95,8 @@ jobs:
         run: |
           npm run build --prefix packages/i18n
           npm run build --prefix packages/core
-          npm run build --prefix packages/react
           npm run build --prefix packages/agents
-          npm run build --prefix packages/vue
-          npm run build --prefix packages/nuxt
+          npm run build --prefix packages/react
         env:
           NODE_OPTIONS: --max-old-space-size=8192
 

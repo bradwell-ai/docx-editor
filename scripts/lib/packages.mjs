@@ -31,12 +31,6 @@ export const PACKAGES = [
     tsconfigPath: 'packages/react/tsconfig.api.json',
   },
   {
-    name: '@eigenpal/docx-editor-vue',
-    root: 'packages/vue',
-    pkgSlug: 'docx-editor-vue',
-    tsconfigPath: 'packages/vue/tsconfig.api.json',
-  },
-  {
     name: '@eigenpal/docx-editor-agents',
     root: 'packages/agents',
     pkgSlug: 'docx-editor-agents',
