@@ -3,11 +3,11 @@ name: Gist Tarball Release
 on:
   push:
     branches: [main]
-    paths:
-      - 'packages/*/package.json'
-      - 'scripts/pack-gist-tarballs.mjs'
-      - '.github/workflows/gist-tarball-release.yml'
   workflow_dispatch:
+
+concurrency:
+  group: gist-tarball-release
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -19,6 +19,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -28,6 +30,53 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Compute next patch version
+        id: version
+        run: |
+          git fetch --tags --force
+          latest=$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          latest=${latest:-v0.0.0}
+          IFS='.' read -r major minor patch <<< "${latest#v}"
+          version="${major}.${minor}.$((patch + 1))"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Apply release version to packages
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const version = process.env.RELEASE_VERSION;
+          const paths = [
+            'packages/i18n/package.json',
+            'packages/core/package.json',
+            'packages/agents/package.json',
+            'packages/react/package.json',
+            'packages/vue/package.json',
+            'packages/nuxt/package.json',
+          ];
+          const internal = new Set([
+            '@eigenpal/docx-editor-i18n',
+            '@eigenpal/docx-editor-core',
+            '@eigenpal/docx-editor-agents',
+            '@eigenpal/docx-editor-react',
+            '@eigenpal/docx-editor-vue',
+            '@eigenpal/nuxt-docx-editor',
+          ]);
+          for (const path of paths) {
+            const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+            pkg.version = version;
+            for (const field of ['dependencies', 'devDependencies', 'peerDependencies']) {
+              if (!pkg[field]) continue;
+              for (const name of Object.keys(pkg[field])) {
+                if (internal.has(name)) pkg[field][name] = `^${version}`;
+              }
+            }
+            fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+          }
+          NODE
 
       - name: Build and pack Gist tarballs
         run: npm run pack:gist
@@ -42,14 +91,20 @@ jobs:
       - name: Publish GitHub Release assets
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
-          version=$(node -p "require('./packages/core/package.json').version")
-          tag="v${version}"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" dist-tarballs/*.tgz dist-tarballs/SHA256SUMS.txt --clobber
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if ! git rev-parse -q --verify "refs/tags/$RELEASE_TAG" >/dev/null; then
+            git tag -a "$RELEASE_TAG" -m "Release $RELEASE_TAG"
+            git push origin "$RELEASE_TAG"
+          fi
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist-tarballs/*.tgz dist-tarballs/SHA256SUMS.txt --clobber
           else
-            gh release create "$tag" dist-tarballs/*.tgz dist-tarballs/SHA256SUMS.txt \
-              --target "$GITHUB_SHA" \
-              --title "$tag" \
-              --notes "Gist-consumable docx-editor tarballs for $tag."
+            gh release create "$RELEASE_TAG" dist-tarballs/*.tgz dist-tarballs/SHA256SUMS.txt \
+              --title "$RELEASE_TAG" \
+              --notes "Gist-consumable docx-editor tarballs for $RELEASE_TAG."
           fi
